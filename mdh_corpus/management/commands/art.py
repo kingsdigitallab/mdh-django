@@ -186,7 +186,7 @@ class Command(KDLCommand):
             'article.pub_date.month': './/article-meta/pub-date/month',
             'article.pub_date.year': './/article-meta/pub-date/year',
         }
-        required = ['journal.label', 'article.pub_date_year']
+        required = ['journal.label']
 
         for f, p in xpaths.items():
             v = None
@@ -217,5 +217,11 @@ class Command(KDLCommand):
                     break
 
             data['article.pub_date.month'] = month_number
+
+        year = data.get('article.pub_date_year', None)
+        if not year:
+            # .../Anthro 2010/...
+            year = re.findall(r' (\d{4,4})/', path)[0]
+            print(data)
 
         return data
