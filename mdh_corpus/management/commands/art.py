@@ -157,7 +157,7 @@ class Command(KDLCommand):
         # article
         article.journal = journal
         article.language = language
-        article.label = data['article.label']
+        article.label = data['article.label'][:300]
         article.discipline = discipline
         article.pub_date = date(
             int(data['article.pub_date.year']),
@@ -197,10 +197,13 @@ class Command(KDLCommand):
                 raise Exception('Empty value ' + p)
             data[f] = v
 
+        # language
+        data['language.label'] = 'unspecified'
         for meta in root.findall('.//article-meta//custom-meta'):
             name = meta.find('meta-name')
             if name is not None and name.text == 'lang':
                 data['language.label'] = meta.find('meta-value').text
+                break
 
         # convert month from string to number (january to 1)
         month = (data['article.pub_date.month'] or '').lower()

@@ -7,6 +7,5 @@ django-redis
 psycopg2-binary
 redis
 elasticsearch>=5.0.0,<6.0.0
-
-
+tqdm
 django-kdl-ldap
