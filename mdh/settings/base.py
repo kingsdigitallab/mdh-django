@@ -81,7 +81,7 @@ INSTALLED_APPS = [
 ]
 
 INSTALLED_APPS += [    # your project apps here
-
+    'mdh_corpus',
     'kdl_ldap',
 ]
 
@@ -279,3 +279,5 @@ AUTH_LDAP_REQUIRE_GROUP = (
         LDAPGroupQuery('cn=mdh,' + LDAP_BASE_OU)
     )
 )
+
+MDH_SOURCE_PATH = 'research_data'
