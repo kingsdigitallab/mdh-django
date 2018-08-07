@@ -157,7 +157,7 @@ class Command(KDLCommand):
         # article
         article.journal = journal
         article.language = language
-        article.label = data['article.label'][:300]
+        article.label = data['article.label']
         article.discipline = discipline
         article.pub_date = date(
             int(data['article.pub_date.year']),
@@ -192,7 +192,7 @@ class Command(KDLCommand):
             v = None
             v = root.find(p, ns_meta)
             if v is not None:
-                v = (''.join(v.itertext()) or '').strip()
+                v = (''.join(v.itertext()) or '').strip()[:300]
             if not v and f in required:
                 raise Exception('Empty value ' + p)
             data[f] = v
