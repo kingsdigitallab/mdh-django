@@ -10,7 +10,7 @@ class Journal(models.Model):
 
 
 class Language(models.Model):
-    label = models.CharField(max_length=10, unique=True)
+    label = models.CharField(max_length=15, unique=True)
 
 
 class Discipline(models.Model):

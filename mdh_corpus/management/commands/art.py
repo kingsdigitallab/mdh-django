@@ -148,7 +148,7 @@ class Command(KDLCommand):
 
         # update the language
         language, created = self.get_or_create(
-            Language, data['language.label'])
+            Language, data['language.label'][:15])
 
         # discipline
         discipline, created = self.get_or_create(
