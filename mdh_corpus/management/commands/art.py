@@ -218,10 +218,10 @@ class Command(KDLCommand):
 
             data['article.pub_date.month'] = month_number
 
-        year = data.get('article.pub_date_year', None)
+        year = data.get('article.pub_date.year', None)
         if not year:
             # .../Anthro 2010/...
             year = re.findall(r' (\d{4,4})/', path)[0]
-            print(data)
+            data['article.pub_date.year'] = year
 
         return data
