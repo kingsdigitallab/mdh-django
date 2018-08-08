@@ -8,6 +8,8 @@ from mdh_corpus.models import (
     Language,
     Article, Journal,
     Ngram1, Ngram1Article,
+    Ngram2, Ngram2Article,
+    Ngram3, Ngram3Article,
     Domain
 )
 from django.db import transaction
@@ -79,6 +81,10 @@ class Command(KDLCommand):
     def action_clear_ngrams(self):
         Ngram1Article.objects.all().delete()
         Ngram1.objects.all().delete()
+        Ngram2Article.objects.all().delete()
+        Ngram2.objects.all().delete()
+        Ngram3Article.objects.all().delete()
+        Ngram3.objects.all().delete()
 
     def action_locate(self):
         c = 0
@@ -89,27 +95,40 @@ class Command(KDLCommand):
         print('Found %s files.' % c)
 
     def action_add_ngram1(self):
+        return self.action_add_ngramn('1')
+
+    def action_add_ngram2(self):
+        return self.action_add_ngramn('2')
+
+    def action_add_ngram3(self):
+        return self.action_add_ngramn('3')
+
+    def action_add_ngramn(self, n):
         c = 0
         nf = 0
-        for path in tqdm(list(self.get_files('ngram1', '.txt'))):
+
+        Ngramn = globals()['Ngram%s' % n]
+        NgramnArticle = globals()['Ngram%sArticle' % n]
+
+        for path in tqdm(list(self.get_files('ngram%s' % n, '.txt'))):
             c += 1
-            fileid = re.sub(r'^.*/(.*?)-ngram1.txt$', r'\1', path)
+            fileid = re.sub(r'^.*/(.*?)-ngram' + n + '.txt$', r'\1', path)
 
             article = Article.objects.filter(fileid=fileid).first()
             if not article:
                 nf += 1
             else:
-                self.add_ngram1(article, path)
+                self.add_ngramn(article, path, Ngramn, NgramnArticle, n)
 
         print('Found %s files. %s missing from DB.' % (c, nf))
 
     @transaction.atomic
-    def add_ngram1(self, article, path):
+    def add_ngramn(self, article, path, Ngramn, NgramnArticle, n):
         # find the ngram file
         # TODO: check the quotation marks and escape marks
         # TODO: check encoding!
 
-        angram_article = Ngram1Article.objects.filter(article=article).first()
+        angram_article = NgramnArticle.objects.filter(article=article).first()
 
         if angram_article:
             return
@@ -129,15 +148,15 @@ class Command(KDLCommand):
 
                 # add it to the article
                 ngram_articles.append(
-                    Ngram1Article(
-                        article=article,
-                        ngram1=self.get_or_create(Ngram1, string)[0],
-                        freq=row[1].strip()
-                    )
+                    NgramnArticle(**{
+                        'article': article,
+                        'ngram' + n: self.get_or_create(Ngramn, string)[0],
+                        'freq': row[1].strip()
+                    })
                 )
 
         if ngram_articles:
-            Ngram1Article.objects.bulk_create(ngram_articles)
+            NgramnArticle.objects.bulk_create(ngram_articles)
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
