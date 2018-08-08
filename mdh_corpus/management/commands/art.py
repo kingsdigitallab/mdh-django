@@ -5,9 +5,10 @@ Created on 15 Feb 2018
 '''
 
 from mdh_corpus.models import (
-    Language, Discipline,
+    Language,
     Article, Journal,
-    # Ngram, NgramArticle
+    Ngram1, Ngram1Article,
+    Domain
 )
 from django.db import transaction
 import logging
@@ -33,6 +34,7 @@ class Command(KDLCommand):
     def __init__(self, *args, **kwargs):
         super(Command, self).__init__(*args, **kwargs)
         self.cache = {
+            'domain': {},
             'discipline': {},
             'language': {},
             'journal': {},
@@ -71,8 +73,13 @@ class Command(KDLCommand):
         # logger.debug(msg)
         pass
 
-    def action_clear(self):
+    def action_clear_journals(self):
         [r.delete() for r in Journal.objects.all()]
+        [r.delete() for r in Article.objects.all()]
+
+    def action_clear_ngrams(self):
+        [r.delete() for r in Ngram1Article.objects.all()]
+        [r.delete() for r in Ngram1.objects.all()]
 
     def action_locate(self):
         c = 0
@@ -81,6 +88,9 @@ class Command(KDLCommand):
             print(path)
 
         print('Found %s files.' % c)
+
+    def action_add_ngram1(self):
+        pass
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
@@ -152,15 +162,15 @@ class Command(KDLCommand):
         language, created = self.get_or_create(
             Language, data['language.label'][:15])
 
-        # discipline
-        discipline, created = self.get_or_create(
-            Discipline, data['discipline.label'])
+        # domain
+        domain, created = self.get_or_create(
+            Domain, data['domain.label'])
 
         # article
         article.journal = journal
         article.language = language
         article.label = data['article.label']
-        article.discipline = discipline
+        article.domains.add(domain)
         article.pub_date = date(
             int(data['article.pub_date.year']),
             int(data['article.pub_date.month']),
@@ -179,9 +189,9 @@ class Command(KDLCommand):
 
         root = tree.getroot()
 
-        data['discipline.label'] = 'unknown'
+        data['domain.label'] = 'unknown'
         for match in re.findall(r'([^/]+?)\s+Corpus', path):
-            data['discipline.label'] = match.strip().lower()
+            data['domain.label'] = match.strip().lower()
 
         # <issn pub-type="epub">1539297X</issn>
         xpaths = {
@@ -192,7 +202,7 @@ class Command(KDLCommand):
             'article.pub_date.month': './/article-meta/pub-date/month',
             'article.pub_date.year': './/article-meta/pub-date/year',
         }
-        required = ['journal.label']
+        required = []
 
         for f, p in xpaths.items():
             v = None
@@ -225,6 +235,10 @@ class Command(KDLCommand):
 
             data['article.pub_date.month'] = month_number
 
+        #
+        data['journal.label'] = data['journal.label'] or 'unspecified'
+
+        #
         year = data.get('article.pub_date.year', None)
         if not year:
             # .../Anthro 2010/...

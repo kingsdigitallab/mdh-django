@@ -13,7 +13,7 @@ class Language(models.Model):
     label = models.CharField(max_length=15, unique=True)
 
 
-class Discipline(models.Model):
+class Domain(models.Model):
     label = models.CharField(max_length=30, unique=True)
 
 
@@ -23,15 +23,34 @@ class Article(models.Model):
     label = models.CharField(max_length=300, null=True)
     lang = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True)
     pub_date = models.DateField()
-    discipline = models.ForeignKey(
-        Discipline, on_delete=models.SET_NULL, null=True)
+    domains = models.ManyToManyField(Domain)
 
 
-class Ngram(models.Model):
+class Ngram1(models.Model):
+    label = models.CharField(max_length=50, unique=True)
+
+
+class Ngram1Article(models.Model):
+    ngram1 = models.ForeignKey(Ngram1, on_delete=models.CASCADE)
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    freq = models.IntegerField(default=0)
+
+
+class Ngram2(models.Model):
     label = models.CharField(max_length=100, unique=True)
 
 
-class NgramArticle(models.Model):
-    ngram = models.ForeignKey(Ngram, on_delete=models.CASCADE)
+class Ngram2Article(models.Model):
+    ngram2 = models.ForeignKey(Ngram2, on_delete=models.CASCADE)
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    freq = models.IntegerField(default=0)
+
+
+class Ngram3(models.Model):
+    label = models.CharField(max_length=150, unique=True)
+
+
+class Ngram3Article(models.Model):
+    ngram3 = models.ForeignKey(Ngram3, on_delete=models.CASCADE)
     article = models.ForeignKey(Article, on_delete=models.CASCADE)
     freq = models.IntegerField(default=0)
