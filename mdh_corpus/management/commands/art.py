@@ -172,11 +172,12 @@ class Command(KDLCommand):
 
     def read_meta_file(self, path, data):
         import xml.etree.ElementTree as ET
-        tree = ET.parse(path)
         try:
-            root = tree.getroot()
+            tree = ET.parse(path)
         except ET.ParseError:
             return None
+
+        root = tree.getroot()
 
         data['discipline.label'] = 'unknown'
         for match in re.findall(r'([^/]+?)\s+Corpus', path):
