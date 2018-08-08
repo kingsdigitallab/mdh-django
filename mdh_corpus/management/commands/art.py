@@ -39,6 +39,7 @@ class Command(KDLCommand):
         self.cache = {
             'domain': {},
             'journal': {},
+            'ngrams': None,
         }
 
     def add_arguments(self, parser):
@@ -113,7 +114,11 @@ class Command(KDLCommand):
         Ngramn = globals()['Ngram%s' % n]
         NgramnArticle = globals()['Ngram%sArticle' % n]
 
-        for path in tqdm(list(self.get_files('ngram%s' % n, '.txt'))):
+        self.preload_ngrams(Ngramn)
+
+        print('locate ngram files')
+        paths = list(self.get_files('ngram%s' % n, '.txt'))
+        for path in tqdm(paths):
             c += 1
             fileid = re.sub(r'^.*/(.*?)-ngram' + n + '.txt$', r'\1', path)
 
@@ -131,9 +136,21 @@ class Command(KDLCommand):
 
         print('Found %s files. %s missing from DB.' % (c, nf))
 
+    def preload_ngrams(self, Ngramn):
+        print('preload ngrams')
+        self.cache['ngrams'] = {
+            ngram[0]: ngram[1]
+            for ngram
+            in Ngramn.objects.all().values_list(
+                'label', 'id'
+            ).order_by().iterator()
+        }
+
     @transaction.atomic
     def add_ngramn(self, article_id, path,
                    Ngramn, NgramnArticle, n, update=False):
+        ngram_cache = self.cache['ngrams']
+
         # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
 
         # skip if we already have ngrams for this article
@@ -155,13 +172,30 @@ class Command(KDLCommand):
             }
 
         # retrieve all existing ngrams
-        ngrams = {
-            ngram.label: ngram
-            for ngram in
-            Ngramn.objects.filter(label__in=pairs.keys())
-        }
+        if ngram_cache is not None:
+            ngrams = {}
+            # From cache.
+            # WARNING: assumes no other process creates ngram
+            # during execution of this script
+            for string in pairs:
+                ngram_id = ngram_cache.get(string, None)
+                if ngram_id:
+                    ngrams[string] = ngram_id
+        else:
+            # From DB.
+            # More scalable and allow concurrent executions
+            # But less fast.
+            ngrams = {
+                ngram[0]: ngram[1]
+                for ngram
+                in Ngramn.objects.filter(
+                    label__in=pairs.keys()
+                ).values_list('label', 'id').order_by()
+            }
 
-        # prepare missing ones
+        # print(ngrams)
+
+        # prepare missing ngram records
         ngrams_missing = []
         for string in pairs.keys():
             if string not in ngrams:
@@ -173,14 +207,26 @@ class Command(KDLCommand):
         if ngrams_missing:
             Ngramn.objects.bulk_create(ngrams_missing)
 
+            if ngram_cache is not None:
+                # add new ids to cache
+                for ngram in ngrams_missing:
+                    ngram_cache[ngram.label] = ngram.pk
+
         # prepare all ngram_articles
         ngram_articles = [
+            NgramnArticle(**{
+                'article_id': article_id,
+                'ngram' + n + '_id': ngram_id,
+                'freq': pairs[ngram_label]
+            })
+            for ngram_label, ngram_id in ngrams.items()
+        ] + [
             NgramnArticle(**{
                 'article_id': article_id,
                 'ngram' + n + '_id': ngram.pk,
                 'freq': pairs[ngram.label]
             })
-            for ngram in (list(ngrams.values()) + ngrams_missing)
+            for ngram in ngrams_missing
         ]
 
         # bulk create the ngram_article records
