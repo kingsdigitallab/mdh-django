@@ -9,6 +9,7 @@ from mdh_corpus.models import (
     Article, Journal,
     # Ngram, NgramArticle
 )
+from django.db import transaction
 import logging
 from ._kdlcommand import KDLCommand
 import os
@@ -94,6 +95,7 @@ class Command(KDLCommand):
 
         print('Found %s files.' % c)
 
+    @transaction.atomic
     def read_and_upload_meta(self, path, update=False):
 
         data = {}
@@ -105,8 +107,8 @@ class Command(KDLCommand):
 
         if update or article is None:
             try:
-                self.read_meta_file(path, data)
-                self.upload_meta(data, article)
+                if self.read_meta_file(path, data):
+                    self.upload_meta(data, article)
             except Exception:
                 print(data)
                 raise
@@ -171,7 +173,10 @@ class Command(KDLCommand):
     def read_meta_file(self, path, data):
         import xml.etree.ElementTree as ET
         tree = ET.parse(path)
-        root = tree.getroot()
+        try:
+            root = tree.getroot()
+        except ET.ParseError:
+            return None
 
         data['discipline.label'] = 'unknown'
         for match in re.findall(r'([^/]+?)\s+Corpus', path):
