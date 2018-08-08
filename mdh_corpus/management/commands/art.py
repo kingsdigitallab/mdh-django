@@ -39,6 +39,7 @@ class Command(KDLCommand):
             'discipline': {},
             'language': {},
             'journal': {},
+            'ngram1': {},
         }
 
     def add_arguments(self, parser):
@@ -92,36 +93,38 @@ class Command(KDLCommand):
 
     def action_add_ngram1(self):
         c = 0
+        nf = 0
         for path in tqdm(list(self.get_files('ngram1', '.txt'))):
             c += 1
-            fileid = re.sub(r'^.*/(.*?).txt$', r'\1', path)
+            fileid = re.sub(r'^.*/(.*?)-ngram1.txt$', r'\1', path)
 
             article = Article.objects.filter(fileid=fileid).first()
-            if article:
-                # find the ngram file
-                # TODO: check the quotaion smrks and escape marks
-                # TODO: check encoding!
-                with open(path, newline='') as f:
-                    reader = csv.reader(f, delimiter='\t')
-                    for row in reader:
-                        row = [r.strip() for r in row]
-                        print(row)
-                        # get or create ngram1
-                        ngram, created = Ngram1.objects.get_or_create(
-                            label=row[0])
-                        print(ngram)
-                        # add it to the article
-                        ngram_article, created = Ngram1Article.objects.\
-                            get_or_create(
-                                article=article,
-                                ngram1=ngram
-                            )
-                        ngram_article.freq = row[1]
-                        ngram_article.save()
+            if not article:
+                nf += 1
+            else:
+                self.add_ngram1(article, path)
 
-                exit()
+        print('Found %s files. %s no in DB.' % (c, nf))
 
-        print('Found %s files.' % c)
+    @transaction.atomic
+    def add_ngram1(self, article, path):
+        # find the ngram file
+        # TODO: check the quotation marks and escape marks
+        # TODO: check encoding!
+        with open(path, newline='') as f:
+            reader = csv.reader(f, delimiter='\t')
+            for row in reader:
+                row = [r.strip() for r in row]
+                # get or create ngram1
+                ngram, created = self.get_or_create(Ngram1, row[0])
+                # add it to the article
+                ngram_article, created = Ngram1Article.objects.\
+                    get_or_create(
+                        article=article,
+                        ngram1=ngram
+                    )
+                ngram_article.freq = row[1]
+                ngram_article.save()
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
