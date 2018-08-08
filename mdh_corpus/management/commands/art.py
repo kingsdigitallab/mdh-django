@@ -170,13 +170,13 @@ class Command(KDLCommand):
         article.journal = journal
         article.language = language
         article.label = data['article.label']
-        article.domains.add(domain)
         article.pub_date = date(
             int(data['article.pub_date.year']),
             int(data['article.pub_date.month']),
             1
         )
         article.save()
+        article.domains.add(domain)
 
         # update the article
 
