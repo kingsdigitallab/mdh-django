@@ -21,6 +21,7 @@ from django.conf import settings
 from datetime import date
 from tqdm import tqdm
 import csv
+from django.db.utils import IntegrityError, OperationalError
 
 logger = logging.getLogger('mdh')
 
@@ -114,7 +115,7 @@ class Command(KDLCommand):
         Ngramn = globals()['Ngram%s' % n]
         NgramnArticle = globals()['Ngram%sArticle' % n]
 
-        self.preload_ngrams(Ngramn)
+        # self.preload_ngrams(Ngramn)
 
         print('locate ngram files')
         paths = list(self.get_files('ngram%s' % n, '.txt'))
@@ -129,10 +130,21 @@ class Command(KDLCommand):
             if not article_ids:
                 nf += 1
             else:
-                self.add_ngramn(
-                    article_ids[0], path,
-                    Ngramn, NgramnArticle, n, update=update
-                )
+                while True:
+                    try:
+                        self.add_ngramn(
+                            article_ids[0], path,
+                            Ngramn, NgramnArticle, n, update=update
+                        )
+                        break
+                    except IntegrityError as e:
+                        print(
+                            'Race condition (duplicate key), retry... (%s)'
+                            % str(e))
+                    except OperationalError as e:
+                        print(
+                            'Race condition (operational error), retry... (%s)'
+                            % str(e))
 
         print('Found %s files. %s missing from DB.' % (c, nf))
 
