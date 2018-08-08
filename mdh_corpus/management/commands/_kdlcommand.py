@@ -25,6 +25,17 @@ class KDLCommand(BaseCommand):
             help="Do everything except modify the database.",
         )
 
+    def run_action(self, action_method):
+        import time
+        t0 = time.time()
+        action_method()
+        d = time.time() - t0
+        print(
+            'END of command "{}" ({:.2f} s.)'.format(
+                self.action, d
+            )
+        )
+
     def handle(self, *args, **options):
         self.options = options
         self.action = options['action'][0]
@@ -36,22 +47,18 @@ class KDLCommand(BaseCommand):
 
         if action_method:
             show_help = False
-            import time
-            try:
-                with transaction.atomic():
-                    t0 = time.time()
-                    action_method()
-                    d = time.time() - t0
-                    print(
-                        'END of command "{}" ({:.2f} s.)'.format(
-                            self.action, d)
-                    )
-                    if self.is_dry_run():
+
+            if self.is_dry_run():
+                try:
+                    with transaction.atomic():
+                        self.run_action(action_method)
                         raise DryRunRollBackException
-            except DryRunRollBackException:
-                print('-' * 50)
-                print('INFO: DRY RUN, nothing written to the database')
-                print('-' * 50)
+                except DryRunRollBackException:
+                    print('-' * 50)
+                    print('INFO: DRY RUN, nothing written to the database')
+                    print('-' * 50)
+            else:
+                self.run_action(action_method)
 
         if show_help:
             self.print_help(

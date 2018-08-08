@@ -18,6 +18,7 @@ import re
 from django.conf import settings
 from datetime import date
 from tqdm import tqdm
+import csv
 
 logger = logging.getLogger('mdh')
 
@@ -49,7 +50,7 @@ class Command(KDLCommand):
 
         return ret
 
-    def get_files(self):
+    def get_files(self, dirname='metadata', ext='.xml'):
         source_path = settings.MDH_SOURCE_PATH
 
         filter = self.options['filter']
@@ -63,10 +64,10 @@ class Command(KDLCommand):
         filter_re = '(?ui)' + filter_re
 
         for p, d, f in os.walk(source_path):
-            if 'metadata' in p:
+            if dirname in p:
                 for file in f:
                     path = os.path.join(p, file)
-                    if re.search(filter_re, path):
+                    if ext in path and re.search(filter_re, path):
                         yield path
 
     def log(self, msg):
@@ -90,7 +91,37 @@ class Command(KDLCommand):
         print('Found %s files.' % c)
 
     def action_add_ngram1(self):
-        pass
+        c = 0
+        for path in tqdm(list(self.get_files('ngram1', '.txt'))):
+            c += 1
+            fileid = re.sub(r'^.*/(.*?).txt$', r'\1', path)
+
+            article = Article.objects.filter(fileid=fileid).first()
+            if article:
+                # find the ngram file
+                # TODO: check the quotaion smrks and escape marks
+                # TODO: check encoding!
+                with open(path, newline='') as f:
+                    reader = csv.reader(f, delimiter='\t')
+                    for row in reader:
+                        row = [r.strip() for r in row]
+                        print(row)
+                        # get or create ngram1
+                        ngram, created = Ngram1.objects.get_or_create(
+                            label=row[0])
+                        print(ngram)
+                        # add it to the article
+                        ngram_article, created = Ngram1Article.objects.\
+                            get_or_create(
+                                article=article,
+                                ngram1=ngram
+                            )
+                        ngram_article.freq = row[1]
+                        ngram_article.save()
+
+                exit()
+
+        print('Found %s files.' % c)
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
