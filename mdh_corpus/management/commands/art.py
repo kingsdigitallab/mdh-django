@@ -36,10 +36,7 @@ class Command(KDLCommand):
         super(Command, self).__init__(*args, **kwargs)
         self.cache = {
             'domain': {},
-            'discipline': {},
-            'language': {},
             'journal': {},
-            'ngram1': {},
         }
 
     def add_arguments(self, parser):
@@ -80,8 +77,8 @@ class Command(KDLCommand):
         [r.delete() for r in Article.objects.all()]
 
     def action_clear_ngrams(self):
-        [r.delete() for r in Ngram1Article.objects.all()]
-        [r.delete() for r in Ngram1.objects.all()]
+        Ngram1Article.objects.all().delete()
+        Ngram1.objects.all().delete()
 
     def action_locate(self):
         c = 0
@@ -104,27 +101,43 @@ class Command(KDLCommand):
             else:
                 self.add_ngram1(article, path)
 
-        print('Found %s files. %s no in DB.' % (c, nf))
+        print('Found %s files. %s missing from DB.' % (c, nf))
 
     @transaction.atomic
     def add_ngram1(self, article, path):
         # find the ngram file
         # TODO: check the quotation marks and escape marks
         # TODO: check encoding!
+
+        angram_article = Ngram1Article.objects.filter(article=article).first()
+
+        if angram_article:
+            return
+
+        strings = {}
+        ngram_articles = []
+
         with open(path, newline='') as f:
             reader = csv.reader(f, delimiter='\t')
             for row in reader:
-                row = [r.strip() for r in row]
-                # get or create ngram1
-                ngram, created = self.get_or_create(Ngram1, row[0])
+                string = row[0].strip()[0:50]
+
+                if string in strings:
+                    continue
+
+                strings[string] = 1
+
                 # add it to the article
-                ngram_article, created = Ngram1Article.objects.\
-                    get_or_create(
+                ngram_articles.append(
+                    Ngram1Article(
                         article=article,
-                        ngram1=ngram
+                        ngram1=self.get_or_create(Ngram1, string)[0],
+                        freq=row[1].strip()
                     )
-                ngram_article.freq = row[1]
-                ngram_article.save()
+                )
+
+        if ngram_articles:
+            Ngram1Article.objects.bulk_create(ngram_articles)
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
@@ -162,7 +175,15 @@ class Command(KDLCommand):
         # with label = label
         # Use caching.
         amodel = Amodel.__name__.lower()
-        cache = self.cache[amodel]
+
+        cache = self.cache.get(amodel, None)
+        if cache is None:
+            cache = self.cache[amodel] = {
+                r.label: r
+                for r in
+                Amodel.objects.all()
+            }
+
         ret = cache.get(label)
         created = False
         if not ret:
