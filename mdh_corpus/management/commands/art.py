@@ -242,7 +242,7 @@ class Command(KDLCommand):
 
         # article
         article.journal = journal
-        article.language = language
+        article.lang = language
         article.label = data['article.label']
         article.pub_date = date(
             int(data['article.pub_date.year']),
