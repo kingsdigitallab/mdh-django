@@ -97,13 +97,16 @@ class Command(KDLCommand):
     def action_add_ngram1(self):
         return self.action_add_ngramn('1')
 
+    def action_update_ngram1(self):
+        return self.action_add_ngramn('1', update=True)
+
     def action_add_ngram2(self):
         return self.action_add_ngramn('2')
 
     def action_add_ngram3(self):
         return self.action_add_ngramn('3')
 
-    def action_add_ngramn(self, n):
+    def action_add_ngramn(self, n, update=False):
         c = 0
         nf = 0
 
@@ -114,49 +117,82 @@ class Command(KDLCommand):
             c += 1
             fileid = re.sub(r'^.*/(.*?)-ngram' + n + '.txt$', r'\1', path)
 
-            article = Article.objects.filter(fileid=fileid).first()
-            if not article:
+            article_ids = Article.objects.filter(
+                fileid=fileid
+            ).values_list('id', flat=True)
+
+            if not article_ids:
                 nf += 1
             else:
-                self.add_ngramn(article, path, Ngramn, NgramnArticle, n)
+                self.add_ngramn(
+                    article_ids[0], path,
+                    Ngramn, NgramnArticle, n, update=update
+                )
 
         print('Found %s files. %s missing from DB.' % (c, nf))
 
     @transaction.atomic
-    def add_ngramn(self, article, path, Ngramn, NgramnArticle, n):
-        # find the ngram file
-        # TODO: check the quotation marks and escape marks
-        # TODO: check encoding!
+    def add_ngramn(self, article_id, path,
+                   Ngramn, NgramnArticle, n, update=False):
+        # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
 
-        angram_article = NgramnArticle.objects.filter(article=article).first()
-
-        if angram_article:
+        # skip if we already have ngrams for this article
+        if not update and NgramnArticle.objects.filter(
+            article_id=article_id
+        ).exists():
             return
 
-        strings = {}
+        max_len = (50 * int(n))
+
         ngram_articles = []
 
+        # read all pairs from CSV (ngram, freq)
         with open(path, newline='') as f:
             reader = csv.reader(f, delimiter='\t')
-            for row in reader:
-                string = row[0].strip()[0:50]
+            pairs = {
+                row[0].strip()[0:max_len]: row[1].strip()
+                for row in reader
+            }
 
-                if string in strings:
-                    continue
+        # retrieve all existing ngrams
+        ngrams = {
+            ngram.label: ngram
+            for ngram in
+            Ngramn.objects.filter(label__in=pairs.keys())
+        }
 
-                strings[string] = 1
-
-                # add it to the article
-                ngram_articles.append(
-                    NgramnArticle(**{
-                        'article': article,
-                        'ngram' + n: self.get_or_create(Ngramn, string)[0],
-                        'freq': row[1].strip()
-                    })
+        # prepare missing ones
+        ngrams_missing = []
+        for string in pairs.keys():
+            if string not in ngrams:
+                ngrams_missing.append(
+                    Ngramn(label=string)
                 )
 
+        # bulk create the missing ngram records
+        if ngrams_missing:
+            Ngramn.objects.bulk_create(ngrams_missing)
+
+        # prepare all ngram_articles
+        ngram_articles = [
+            NgramnArticle(**{
+                'article_id': article_id,
+                'ngram' + n + '_id': ngram.pk,
+                'freq': pairs[ngram.label]
+            })
+            for ngram in (list(ngrams.values()) + ngrams_missing)
+        ]
+
+        # bulk create the ngram_article records
         if ngram_articles:
             NgramnArticle.objects.bulk_create(ngram_articles)
+
+        print('CSV ngrams: %s; found: %s; missing: %s; ngram_articles: %s' % (
+            len(pairs),
+            len(ngrams),
+            len(ngrams_missing),
+            len(ngram_articles)
+        ))
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
