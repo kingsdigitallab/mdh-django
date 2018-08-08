@@ -198,12 +198,13 @@ class Command(KDLCommand):
             data[f] = v
 
         # language
-        data['language.label'] = 'unspecified'
+        language = None
         for meta in root.findall('.//article-meta//custom-meta'):
             name = meta.find('meta-name')
             if name is not None and name.text == 'lang':
-                data['language.label'] = meta.find('meta-value').text
+                language = meta.find('meta-value').text
                 break
+        data['language.label'] = language or 'unspecified'
 
         # convert month from string to number (january to 1)
         month = (data['article.pub_date.month'] or '').lower()
