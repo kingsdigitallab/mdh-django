@@ -33,7 +33,7 @@ class Article(models.Model):
 
 
 class Ngram1(models.Model):
-    label = models.CharField(max_length=50, unique=True)
+    label = models.CharField(max_length=30, unique=True)
 
 
 class Ngram1Article(models.Model):
@@ -43,7 +43,7 @@ class Ngram1Article(models.Model):
 
 
 class Ngram2(models.Model):
-    label = models.CharField(max_length=100, unique=True)
+    label = models.CharField(max_length=50, unique=True)
 
 
 class Ngram2Article(models.Model):
@@ -53,7 +53,7 @@ class Ngram2Article(models.Model):
 
 
 class Ngram3(models.Model):
-    label = models.CharField(max_length=150, unique=True)
+    label = models.CharField(max_length=60, unique=True)
 
 
 class Ngram3Article(models.Model):
