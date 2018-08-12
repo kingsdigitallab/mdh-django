@@ -32,12 +32,15 @@ class Article(models.Model):
     domains = models.ManyToManyField(Domain)
 
 
+TERM_MAX_LEN = 30
+
+
 class Term(models.Model):
     # Note: postgres will add an index just for like queries
     # e.g. "X_00ec206e_like" btree (label varchar_pattern_ops)
     # You may want to remove it to save space.
     # Not interested in strings beyond 30 chars, likely to be garbage
-    label = models.CharField(max_length=30, unique=True)
+    label = models.CharField(max_length=TERM_MAX_LEN, unique=True)
 
 
 class Article3Term(models.Model):
