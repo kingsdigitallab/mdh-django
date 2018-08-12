@@ -48,6 +48,10 @@ class Command(KDLCommand):
             '-f', '--filter', action='store', dest='filter',
             help="Filter article by substring.",
         )
+        parser.add_argument(
+            '--reverse', action='store_true', dest='reverse',
+            help="reverse processing.",
+        )
 
         return ret
 
@@ -103,6 +107,8 @@ class Command(KDLCommand):
 
         assert(n == '3')
 
+        self._init_garbage_regs()
+
 #         Ngramn = globals()['Ngram%s' % n]
 #         NgramnArticle = globals()['Ngram%sArticle' % n]
         Ngramn = Term
@@ -110,11 +116,15 @@ class Command(KDLCommand):
 
         # self.preload_ngrams(Ngramn)
 
+        csv_pattern = re.compile(r'^.*/(.*?)-ngram' + n + r'\.txt$')
+
         print('locate ngram files')
         paths = list(self.get_files('ngram%s' % n, '.txt'))
+        if self.options['reverse']:
+            paths = paths[::-1]
         for path in tqdm(paths):
             c += 1
-            fileid = re.sub(r'^.*/(.*?)-ngram' + n + '.txt$', r'\1', path)
+            fileid = csv_pattern.sub(r'\1', path)
 
             article_ids = Article.objects.filter(
                 fileid=fileid,
@@ -152,43 +162,36 @@ class Command(KDLCommand):
             ).order_by().iterator()
         }
 
+    def _init_garbage_regs(self):
+        self.reg_alphanum = re.compile(r'\d\D|\D\d')
+        self.reg_repetition = re.compile(r'(.)\1\1\1')
+
     def get_garbage_label(self, string):
         ret = string
 
-        # repetition same char 4 times is suspicious
-        if re.search(r'(.)\1\1\1', ret):
-            ret = 'JUNK_REPETITION'
-        # digits and non-digits (! 4th, 1990s should be kept)
-        if len(ret) > 6 and re.search(r'\d\D|\D\d', ret):
-            ret = 'JUNK_ALPHANUM'
         if ret.startswith('0'):
             ret = 'JUNK_ZERO'
-        # number >= 3000
-        if re.search(r'^[3456789]\d\d\d', ret):
+        # digits and non-digits (! 4th, 1990s should be kept)
+        elif len(ret) > 6 and self.reg_alphanum.search(ret):
+            ret = 'JUNK_ALPHANUM'
+        # number >= 3000 ! MUST BE AFTER JUNK_ALPHANUM
+        elif len(ret) > 3 and ret[0] in ['3', '4', '5', '6', '7', '8', '9']:
             ret = 'NUMBER'
-
-#         if ret != string:
-#             print(ret, string)
+        # repetition same char 4 times is suspicious
+        elif self.reg_repetition.search(ret):
+            ret = 'JUNK_REPETITION'
 
         return ret
 
-    @transaction.atomic
-    def add_ngramn(self, article_id, path,
-                   Ngramn, NgramnArticle, n, update=False):
-
-        # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
-
+    def _has_ngram_article(self, NgramnArticle, article_id):
         # skip if we already have ngrams for this article
-        if not update and NgramnArticle.objects.filter(
+        return NgramnArticle.objects.filter(
             article_id=article_id
-        ).exists():
-            return
+        ).exists()
 
+    def _read_ngram_csv(self, path, lines, tokens):
         max_len = TERM_MAX_LEN
 
-        # read all pairs from CSV (ngram, freq)
-        lines = {}
-        tokens = {}
         with open(path, newline='') as f:
             reader = csv.reader(f, delimiter='\t')
             for row in reader:
@@ -210,6 +213,7 @@ class Command(KDLCommand):
                     'tokens': tuple
                 }
 
+    def _get_or_create_terms(self, tokens):
         # retrieve all existing ngrams
         # From DB.
         # More scalable and allow concurrent executions
@@ -237,8 +241,33 @@ class Command(KDLCommand):
             for term in terms_missing:
                 terms[term.label] = term.id
 
-        # prepare all article_nterms
+        return terms, len(terms_missing)
 
+    def _add_article_terms(self, lines, terms, NgramnArticle, article_id):
+        # Raw queries here are more than 3 times faster than using ORM
+
+        from django.db import connection
+        with connection.cursor() as c:
+            statement = '''INSERT INTO mdh_corpus_article3term
+            (article_id, term1_id, term2_id, term3_id, freq)
+            VALUES
+            ''' + ','.join([
+                '''(%s, %s, %s, %s, %s)''' % (
+                    article_id,
+                    terms[line_info['tokens'][0]],
+                    terms[line_info['tokens'][1]],
+                    terms[line_info['tokens'][2]],
+                    line_info['freq']
+                )
+                for line_info in lines.values()
+            ])
+
+            c.execute(statement)
+
+        return len(lines)
+
+    def _add_article_terms_orm(self, lines, terms, NgramnArticle, article_id):
+        assert(0)
         article_nterms = [
             NgramnArticle(**{
                 'article_id': article_id,
@@ -254,13 +283,36 @@ class Command(KDLCommand):
         if article_nterms:
             NgramnArticle.objects.bulk_create(article_nterms)
 
+        return len(article_nterms)
+
+    @transaction.atomic
+    def add_ngramn(self, article_id, path,
+                   Ngramn, NgramnArticle, n, update=False):
+
+        # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
+        if not update and self._has_ngram_article(NgramnArticle, article_id):
+            return
+
+        # read all pairs from CSV (ngram, freq)
+        lines = {}
+        tokens = {}
+
+        self._read_ngram_csv(path, lines, tokens)
+
+        terms, new_terms_count = self._get_or_create_terms(tokens)
+
+        # prepare all article_nterms
+        article_terms_count = self._add_article_terms(
+            lines, terms, NgramnArticle, article_id
+        )
+
         print(
             'CSV ngrams: %s; found: %s; missing: %s; ngram_articles: %s [%s]'
             % (
                 len(lines),
                 len(terms),
-                len(terms_missing),
-                len(article_nterms),
+                new_terms_count,
+                article_terms_count,
                 path
             )
         )
