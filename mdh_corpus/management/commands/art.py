@@ -246,6 +246,9 @@ class Command(KDLCommand):
     def _add_article_terms(self, lines, terms, NgramnArticle, article_id):
         # Raw queries here are more than 3 times faster than using ORM
 
+        if not lines:
+            return 0
+
         from django.db import connection
 
         try:
