@@ -167,8 +167,8 @@ class Command(KDLCommand):
         if re.search(r'^[3456789]\d\d\d', ret):
             ret = 'NUMBER'
 
-        if ret != string:
-            print(ret, string)
+#         if ret != string:
+#             print(ret, string)
 
         return ret
 
