@@ -57,7 +57,9 @@ class Article3Term(models.Model):
     # Total: 20 bytes / records + indices => 40 B
     #
     # 4 bytes
-    # id
+    # id set by Django
+    # Remove it with:
+    # alter table mdh_corpus_article3term drop column id;
     # 2 Bytes
     article = models.ForeignKey(Article, on_delete=models.CASCADE)
     # 4 Bytes
@@ -73,7 +75,7 @@ class Article3Term(models.Model):
     freq = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
-        managed = True
+        managed = False
 
 #
 # class Ngram1(models.Model):
