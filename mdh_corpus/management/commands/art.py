@@ -19,7 +19,7 @@ from django.conf import settings
 from datetime import date
 from tqdm import tqdm
 import csv
-from django.db.utils import IntegrityError, OperationalError
+from django.db.utils import IntegrityError, OperationalError, ProgrammingError
 
 logger = logging.getLogger('mdh')
 
@@ -247,22 +247,27 @@ class Command(KDLCommand):
         # Raw queries here are more than 3 times faster than using ORM
 
         from django.db import connection
-        with connection.cursor() as c:
-            statement = '''INSERT INTO mdh_corpus_article3term
-            (article_id, term1_id, term2_id, term3_id, freq)
-            VALUES
-            ''' + ','.join([
-                '''(%s, %s, %s, %s, %s)''' % (
-                    article_id,
-                    terms[line_info['tokens'][0]],
-                    terms[line_info['tokens'][1]],
-                    terms[line_info['tokens'][2]],
-                    line_info['freq']
-                )
-                for line_info in lines.values()
-            ])
 
-            c.execute(statement)
+        try:
+            with connection.cursor() as c:
+                statement = '''INSERT INTO mdh_corpus_article3term
+                (article_id, term1_id, term2_id, term3_id, freq)
+                VALUES
+                ''' + ','.join([
+                    '''(%s, %s, %s, %s, %s)''' % (
+                        article_id,
+                        terms[line_info['tokens'][0]],
+                        terms[line_info['tokens'][1]],
+                        terms[line_info['tokens'][2]],
+                        line_info['freq']
+                    )
+                    for line_info in lines.values()
+                ])
+
+                c.execute(statement)
+        except ProgrammingError as e:
+            print(statement)
+            raise e
 
         return len(lines)
 
