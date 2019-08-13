@@ -7,10 +7,8 @@ Created on 15 Feb 2018
 from mdh_corpus.models import (
     Language,
     Article, Journal,
-    Ngram1, Ngram1Article,
-    Ngram2, Ngram2Article,
-    Ngram3, Ngram3Article,
-    Domain
+    Term, Article3Term,
+    Domain, TERM_MAX_LEN
 )
 from django.db import transaction
 import logging
@@ -21,7 +19,7 @@ from django.conf import settings
 from datetime import date
 from tqdm import tqdm
 import csv
-from django.db.utils import IntegrityError, OperationalError
+from django.db.utils import IntegrityError, OperationalError, ProgrammingError
 
 logger = logging.getLogger('mdh')
 
@@ -40,7 +38,8 @@ class Command(KDLCommand):
         self.cache = {
             'domain': {},
             'journal': {},
-            'ngrams': None,
+            'terms': None,
+            'language': {},
         }
 
     def add_arguments(self, parser):
@@ -48,6 +47,10 @@ class Command(KDLCommand):
         parser.add_argument(
             '-f', '--filter', action='store', dest='filter',
             help="Filter article by substring.",
+        )
+        parser.add_argument(
+            '--reverse', action='store_true', dest='reverse',
+            help="reverse processing.",
         )
 
         return ret
@@ -81,12 +84,8 @@ class Command(KDLCommand):
         [r.delete() for r in Article.objects.all()]
 
     def action_clear_ngrams(self):
-        Ngram1Article.objects.all().delete()
-        Ngram1.objects.all().delete()
-        Ngram2Article.objects.all().delete()
-        Ngram2.objects.all().delete()
-        Ngram3Article.objects.all().delete()
-        Ngram3.objects.all().delete()
+        Article3Term.objects.all().delete()
+        Term.objects.all().delete()
 
     def action_locate(self):
         c = 0
@@ -96,14 +95,8 @@ class Command(KDLCommand):
 
         print('Found %s files.' % c)
 
-    def action_add_ngram1(self):
-        return self.action_add_ngramn('1')
-
-    def action_update_ngram1(self):
-        return self.action_add_ngramn('1', update=True)
-
-    def action_add_ngram2(self):
-        return self.action_add_ngramn('2')
+    def action_update_ngram3(self):
+        return self.action_add_ngramn('3', update=True)
 
     def action_add_ngram3(self):
         return self.action_add_ngramn('3')
@@ -112,19 +105,30 @@ class Command(KDLCommand):
         c = 0
         nf = 0
 
-        Ngramn = globals()['Ngram%s' % n]
-        NgramnArticle = globals()['Ngram%sArticle' % n]
+        assert(n == '3')
+
+        self._init_garbage_regs()
+
+#         Ngramn = globals()['Ngram%s' % n]
+#         NgramnArticle = globals()['Ngram%sArticle' % n]
+        Ngramn = Term
+        NgramnArticle = Article3Term
 
         # self.preload_ngrams(Ngramn)
 
+        csv_pattern = re.compile(r'^.*/(.*?)-ngram' + n + r'\.txt$')
+
         print('locate ngram files')
         paths = list(self.get_files('ngram%s' % n, '.txt'))
+        if self.options['reverse']:
+            paths = paths[::-1]
         for path in tqdm(paths):
             c += 1
-            fileid = re.sub(r'^.*/(.*?)-ngram' + n + '.txt$', r'\1', path)
+            fileid = csv_pattern.sub(r'\1', path)
 
             article_ids = Article.objects.filter(
-                fileid=fileid
+                fileid=fileid,
+                lang__label__in=['en', 'EN', 'eng', 'ENG']
             ).values_list('id', flat=True)
 
             if not article_ids:
@@ -158,99 +162,168 @@ class Command(KDLCommand):
             ).order_by().iterator()
         }
 
-    @transaction.atomic
-    def add_ngramn(self, article_id, path,
-                   Ngramn, NgramnArticle, n, update=False):
-        ngram_cache = self.cache['ngrams']
+    def _init_garbage_regs(self):
+        self.reg_alphanum = re.compile(r'\d\D|\D\d')
+        self.reg_repetition = re.compile(r'(.)\1\1\1')
 
-        # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
+    def get_garbage_label(self, string):
+        ret = string
 
+        if ret.startswith('0'):
+            ret = 'JUNK_ZERO'
+        # digits and non-digits (! 4th, 1990s should be kept)
+        elif len(ret) > 6 and self.reg_alphanum.search(ret):
+            ret = 'JUNK_ALPHANUM'
+        # number >= 3000 ! MUST BE AFTER JUNK_ALPHANUM
+        elif len(ret) > 3 and ret[0] in ['3', '4', '5', '6', '7', '8', '9']:
+            ret = 'NUMBER'
+        # repetition same char 4 times is suspicious
+        elif self.reg_repetition.search(ret):
+            ret = 'JUNK_REPETITION'
+
+        return ret
+
+    def _has_ngram_article(self, NgramnArticle, article_id):
         # skip if we already have ngrams for this article
-        if not update and NgramnArticle.objects.filter(
+        return NgramnArticle.objects.filter(
             article_id=article_id
-        ).exists():
-            return
+        ).exists()
 
-        max_len = (50 * int(n))
+    def _read_ngram_csv(self, path, lines, tokens):
+        max_len = TERM_MAX_LEN
 
-        ngram_articles = []
-
-        # read all pairs from CSV (ngram, freq)
         with open(path, newline='') as f:
             reader = csv.reader(f, delimiter='\t')
-            pairs = {
-                row[0].strip()[0:max_len]: row[1].strip()
-                for row in reader
-            }
+            for row in reader:
+                string = row[0].strip()
+                substrings = string.split(' ')
+                if len(substrings) != 3:
+                    continue
 
+                tuple = []
+                for token in substrings:
+                    token = self.get_garbage_label(token[:max_len])
+
+                    tuple.append(token)
+                    tokens[token] = 1
+
+                # TODO: pre-process the tokens
+                lines[string] = {
+                    'freq': row[1].strip(),
+                    'tokens': tuple
+                }
+
+    def _get_or_create_terms(self, tokens):
         # retrieve all existing ngrams
-        if ngram_cache is not None:
-            ngrams = {}
-            # From cache.
-            # WARNING: assumes no other process creates ngram
-            # during execution of this script
-            for string in pairs:
-                ngram_id = ngram_cache.get(string, None)
-                if ngram_id:
-                    ngrams[string] = ngram_id
-        else:
-            # From DB.
-            # More scalable and allow concurrent executions
-            # But less fast.
-            ngrams = {
-                ngram[0]: ngram[1]
-                for ngram
-                in Ngramn.objects.filter(
-                    label__in=pairs.keys()
-                ).values_list('label', 'id').order_by()
-            }
+        # From DB.
+        # More scalable and allow concurrent executions
+        # But less fast.
+        terms = {
+            term[0]: term[1]
+            for term
+            in Term.objects.filter(
+                label__in=tokens
+            ).values_list('label', 'id').order_by()
+        }
 
-        # print(ngrams)
-
-        # prepare missing ngram records
-        ngrams_missing = []
-        for string in pairs.keys():
-            if string not in ngrams:
-                ngrams_missing.append(
-                    Ngramn(label=string)
+        # prepare missing terms records
+        terms_missing = []
+        for token in tokens:
+            if token not in terms:
+                terms_missing.append(
+                    Term(label=token)
                 )
 
-        # bulk create the missing ngram records
-        if ngrams_missing:
-            Ngramn.objects.bulk_create(ngrams_missing)
+        # bulk create the missing terms records
+        if terms_missing:
+            Term.objects.bulk_create(terms_missing)
+            # add that to <terms>
+            for term in terms_missing:
+                terms[term.label] = term.id
 
-            if ngram_cache is not None:
-                # add new ids to cache
-                for ngram in ngrams_missing:
-                    ngram_cache[ngram.label] = ngram.pk
+        return terms, len(terms_missing)
 
-        # prepare all ngram_articles
-        ngram_articles = [
+    def _add_article_terms(self, lines, terms, NgramnArticle, article_id):
+        # Raw queries here are more than 3 times faster than using ORM
+
+        if not lines:
+            return 0
+
+        from django.db import connection
+
+        try:
+            with connection.cursor() as c:
+                statement = '''INSERT INTO mdh_corpus_article3term
+                (article_id, term1_id, term2_id, term3_id, freq)
+                VALUES
+                ''' + ','.join([
+                    '''(%s, %s, %s, %s, %s)''' % (
+                        article_id,
+                        terms[line_info['tokens'][0]],
+                        terms[line_info['tokens'][1]],
+                        terms[line_info['tokens'][2]],
+                        line_info['freq']
+                    )
+                    for line_info in lines.values()
+                ])
+
+                c.execute(statement)
+        except ProgrammingError as e:
+            print(statement)
+            raise e
+
+        return len(lines)
+
+    def _add_article_terms_orm(self, lines, terms, NgramnArticle, article_id):
+        assert(0)
+        article_nterms = [
             NgramnArticle(**{
                 'article_id': article_id,
-                'ngram' + n + '_id': ngram_id,
-                'freq': pairs[ngram_label]
+                'term1_id': terms[line_info['tokens'][0]],
+                'term2_id': terms[line_info['tokens'][1]],
+                'term3_id': terms[line_info['tokens'][2]],
+                'freq': line_info['freq']
             })
-            for ngram_label, ngram_id in ngrams.items()
-        ] + [
-            NgramnArticle(**{
-                'article_id': article_id,
-                'ngram' + n + '_id': ngram.pk,
-                'freq': pairs[ngram.label]
-            })
-            for ngram in ngrams_missing
+            for line_info in lines.values()
         ]
 
         # bulk create the ngram_article records
-        if ngram_articles:
-            NgramnArticle.objects.bulk_create(ngram_articles)
+        if article_nterms:
+            NgramnArticle.objects.bulk_create(article_nterms)
 
-        print('CSV ngrams: %s; found: %s; missing: %s; ngram_articles: %s' % (
-            len(pairs),
-            len(ngrams),
-            len(ngrams_missing),
-            len(ngram_articles)
-        ))
+        return len(article_nterms)
+
+    @transaction.atomic
+    def add_ngramn(self, article_id, path,
+                   Ngramn, NgramnArticle, n, update=False):
+
+        # TODO: check all ngrams are normalised in CSV (e.g. lowercase)
+        if not update and self._has_ngram_article(NgramnArticle, article_id):
+            return
+
+        # read all pairs from CSV (ngram, freq)
+        lines = {}
+        tokens = {}
+
+        self._read_ngram_csv(path, lines, tokens)
+
+        terms, new_terms_count = self._get_or_create_terms(tokens)
+
+        # prepare all article_nterms
+        article_terms_count = self._add_article_terms(
+            lines, terms, NgramnArticle, article_id
+        )
+
+        print(
+            'CSV ngrams: %s; found: %s; missing: %s; ngram_articles: %s [%s]'
+            % (
+                len(lines),
+                len(terms),
+                new_terms_count,
+                article_terms_count,
+                path
+            )
+        )
 
     def action_update_meta(self):
         return self.action_add_meta(update=True)
